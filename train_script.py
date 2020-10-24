@@ -7,7 +7,7 @@ from utils import load_data, batch_iter, accuracy
 
 
 # Input dataset/task parameters
-target_task_index = 4  # ie 4 -> AG_NEWS
+target_task_index = 3  # ie 3 -> ag_news_csv
 
 list_task = [
     "yelp_review_full_csv",
@@ -30,7 +30,7 @@ emb_size = 128
 region_size = 7
 region_radius = region_size // 2
 batch_size = 16
-max_epoch = 20
+max_epoch = 5
 learning_rate = 0.0001
 n_classes = list_n_classes[target_task_index]
 vocab_size = list_vocab_size[target_task_index]
@@ -59,7 +59,7 @@ best_acc, global_step, train_loss, train_acc = 0, 0, 0, 0
 model.hybridize()
 
 
-def batch_preprocess(seq, ctx):
+def batch_preprocess(seq, ctx, embedding_size):
     seq = np.array(seq)
     aligned_seq = np.zeros(
         (max_sequence_length - 2 * region_radius, batch_size, region_size)
@@ -72,19 +72,23 @@ def batch_preprocess(seq, ctx):
     batch_sequence = nd.array(seq, ctx)
     trimed_seq = batch_sequence[:, region_radius : max_sequence_length - region_radius]
     mask = nd.broadcast_axes(
-        nd.greater(trimed_seq, 0).reshape((batch_size, -1, 1)), axis=2, size=128
+        nd.greater(trimed_seq, 0).reshape((batch_size, -1, 1)),
+        axis=2,
+        size=embedding_size,
     )
     return aligned_seq, nd.array(trimed_seq, ctx), mask
 
 
-def evaluate(data, batch_size):
+def evaluate(data, batch_size, embedding_size):
     test_loss = 0.0
     acc_test = 0.0
     cnt = 0
     for epoch_percent, batch_slots in batch_iter(data, batch_size, shuffle=False):
         batch_sequence, batch_label = zip(*batch_slots)
         batch_label = nd.array(batch_label, ctx)
-        aligned_seq, trimed_seq, mask = batch_preprocess(batch_sequence, ctx)
+        aligned_seq, trimed_seq, mask = batch_preprocess(
+            batch_sequence, ctx, embedding_size
+        )
         output = model(aligned_seq, trimed_seq, mask)
         loss = SCE(output, batch_label)
         acc_test += accuracy(output, batch_label, batch_size)
@@ -95,37 +99,41 @@ def evaluate(data, batch_size):
 
 # Launching Training loop
 ctime = time.time()
+print("\nStarting training loop...\n")
 for epoch in range(max_epoch):
+    epoch_start_time = time.time()
     for epoch_percent, batch_slots in batch_iter(data_train, batch_size, shuffle=True):
         batch_sequence, batch_label = zip(*batch_slots)
         global_step = global_step + 1
         batch_label = nd.array(batch_label, ctx)
-        aligned_seq, trimed_seq, mask = batch_preprocess(batch_sequence, ctx)
+        aligned_seq, trimed_seq, mask = batch_preprocess(batch_sequence, ctx, emb_size)
         with autograd.record():
             output = model(aligned_seq, trimed_seq, mask)
             loss = SCE(output, batch_label)
         loss.backward()
         trainer.step(batch_size)
-        train_acc += accuracy(output, batch_label, batch_size)
+        # train_acc += accuracy(output, batch_label, batch_size)
         train_loss += nd.mean(loss)
         if global_step % print_step == 0:
             print(
-                "%.4f %%" % epoch_percent,
+                "Epoch %d Progress:" % (epoch + 1),
+                "%.4f %% |" % epoch_percent,
                 "train_loss:",
                 train_loss.asscalar() / print_step,
-                " train_acc:",
-                train_acc.asscalar() / print_step,
-                "time:",
+                "| time:",
                 time.time() - ctime,
             )
-            train_loss, train_acc = 0, 0
+            train_loss = 0
             ctime = time.time()
 
-    test_acc, test_loss = evaluate(data_test, batch_size)
+    test_acc, test_loss = evaluate(data_test, batch_size, emb_size)
+    epoch_time = time.time() - epoch_start_time
 
     if test_acc > best_acc:
         best_acc = test_acc
-        model.save_parameters("params/regionemb_" + list_task[target_task_index])
+        model.save_parameters(f"model_bin/exam_{list_task[target_task_index]}.bin")
     print(
-        "epoch %d done" % (epoch + 1), "acc = %.4f,loss = %.4f" % (test_acc, test_loss)
+        "Epoch %d Completed" % (epoch + 1),
+        "| Test Acc = %.4f | loss = %.4f " % (test_acc, test_loss),
+        "| Duration:", epoch_time, "\n",
     )

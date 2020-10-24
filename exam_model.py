@@ -1,9 +1,9 @@
 """
-
 Title   : Explicit Interaction Model towards Text Classification
 Author  : Cunxiao Du, Zhaozheng Chin, Fuli Feng, Lei Zhu, Tian Gan, Liqiang Nie
 Papers  : https://arxiv.org/pdf/1811.09386.pdf
-Source  :
+Source  : https://github.com/zhaozhengChen/RegionEmbedding
+          https://github.com/NonvolatileMemory/AAAI_2019_EXAM
 """
 from mxnet.gluon import nn
 
@@ -19,26 +19,33 @@ class EXAM(nn.HybridBlock):
         max_sequence_length: int = 256,
         batch_size: int = 32,
     ):
+        super(EXAM, self).__init__()
 
         self.num_classes = num_classes
         self.embedding_size = embedding_size
-        self.region_radius = region_size // 2
+        self.region_size = region_size
+        self.region_radius = self.region_size // 2
         self.batch_size = batch_size
         self.vocabulary_size = vocabulary_size
         self.max_sequence_length = max_sequence_length
 
         with self.name_scope():
             # Same set of components initialy used in Region Embedding Word Context scenario
-
-            self.embedding = nn.Embedding(self.vocabulary_size, self.region_size * self.embedding_size)
-            self.embedding_region = nn.Embedding(self.vocabulary_size, self.embedding_size)
+            self.embedding = nn.Embedding(
+                self.vocabulary_size, self.region_size * self.embedding_size
+            )
+            self.embedding_region = nn.Embedding(
+                self.vocabulary_size, self.embedding_size
+            )
 
             self.max_pool = nn.GlobalMaxPool1D()
 
             self.dense = nn.Dense(self.num_classes)
 
-            # EXAM adds 2 extra linear layers (dense1/dense2) on top of the default region embedding models
-            self.dense1 = nn.Dense(self.max_sequence_length * 2, activation=exam_activation)
+            # EXAM adds 2 extra linear layers (dense1/dense2) on top of the default region embedding model_bin
+            self.dense1 = nn.Dense(
+                self.max_sequence_length * 2, activation=exam_activation
+            )
             self.dense2 = nn.Dense(1)
 
     def hybrid_forward(self, F, aligned_seq, trimed_seq, mask):
